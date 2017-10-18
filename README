@@ -1,0 +1,20 @@
+# tcr_docking_angle
+# Brian Pierce 10/18/17
+
+Be sure to install the GNU Scientific Library (GSL) prior to compilation.
+
+To compile, type "make".
+
+This program takes in the structure of a TCR-peptide-MHC complex, containing only
+TCR variable domain and MHC alpha1-alpha2 domains. Also, it assumes the naming 
+convention for the chains:
+A: MHC
+B: MHC second chain (if Class II)
+C: peptide
+D: TCR alpha chain
+E: TCR beta chain
+
+THe output from this program includes re-oriented structures, as well as diagnostic
+and informational output to the terminal. On the last line of output ("ANGLES:"), the
+docking angle and incident angles are the first two numbers given, respectively, while
+the third number is distance in Angstroms between TCR center and pMHC.
