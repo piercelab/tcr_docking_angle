@@ -1,6 +1,8 @@
 #include <iostream>
 #include "tcr_complex.h"
 
+using namespace std;
+
 int main(int argc, char** argv)
 { 
   string tcrfile = "";
@@ -9,7 +11,8 @@ int main(int argc, char** argv)
   double xshift = 0.0;
   double crossshift = 0.0;
   double angleshift = 0.0;
-
+  bool shift_set = false;
+  
   if (argc < 2)
     {
       cout << "usage:\n" <<
@@ -40,6 +43,15 @@ int main(int argc, char** argv)
       pepmhcfile = argv[2];
       mhc_type = atoi(argv[3]);
     }
+  else if (argc == 6)
+    {
+      tcrfile = argv[1];
+      mhc_type = atoi(argv[2]);
+      xshift = atof(argv[3]);
+      crossshift = atof(argv[4]);
+      angleshift = atof(argv[5]);
+      shift_set = true;
+    }
   else if (argc == 7)
     {
       tcrfile = argv[1];
@@ -48,10 +60,11 @@ int main(int argc, char** argv)
       xshift = atof(argv[4]);
       crossshift = atof(argv[5]);
       angleshift = atof(argv[6]);
+      shift_set = true;
     }
   
   TCRComplex comp(tcrfile, pepmhcfile, mhc_type);
-  if (argc == 7)
+  if (shift_set)
     {
       comp.SetXShift(xshift);
       comp.SetCrossShift(crossshift);

@@ -5,6 +5,22 @@ using namespace std;
 
 static const double PI = 3.14159;
 
+/*
+// normal/Kabat numbering
+static const int TCR_CYS1alpha = 24;
+static const int TCR_CYS2alpha = 90;
+static const int TCR_CYS1beta = 25;
+static const int TCR_CYS2beta = 93;
+static const int TCR_TYR = 91;
+static const int TCR_GLN = 38; // intra-domain HB GLN residues
+*/
+static const int TCR_CYS1alpha = 23;
+static const int TCR_CYS2alpha = 106;
+static const int TCR_CYS1beta = 23;
+static const int TCR_CYS2beta = 106;
+static const int TCR_TYR = 91;
+static const int TCR_GLN = 46; // intra-domain HB G
+
 struct Atom
 {
   double x;
@@ -35,6 +51,7 @@ class TCRComplex
   void SetZShift(double shift) { my_tcrz_shift = shift; }
   void SetTiltShift(double shift) { my_tcr_tilt_shift = shift; }
   void SetCrossShift(double shift) { my_tcr_cross_shift = shift; }
+  void AlignAntibody();
 
  private:
   void LoadChainFromFile(string, string, ProteinChain*);
@@ -47,6 +64,7 @@ class TCRComplex
   void CalcTCRRotVector(double&, double&, double&);
   void AlignTCRRotVector(double&, double&, double&, double&, double&, double&);
   void AlignTCRToAxis(FILE*, FILE*, double, double, double, double, double, double, double, double, double, double&, double&, double&, bool shift = false);
+  void AlignAntibodyToAxis(FILE*, double, double, double, double, double, double, double, double, double);
   void AlignMHCToAxis(FILE*, FILE*, FILE*, double, double, double, double, double, double, double, double, double, double&, double&, double&);
   void AlignMolToVector(double*, double*, double*, double, double, double, double&, double&, double&,
 			double, double, double, int);

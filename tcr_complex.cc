@@ -15,8 +15,7 @@ TCRComplex::TCRComplex(string tcrfile, string pepmhcfile, int mhc_type)
   my_tcrb_chain = "E";
   my_mhc_chain = "A";
   my_pep_chain = "C";
-  
-  
+    
   my_mhc_type = mhc_type;
   if (my_mhc_type == 1) IsClassII = true;
 
@@ -51,17 +50,26 @@ TCRComplex::TCRComplex(string tcrfile, string pepmhcfile, int mhc_type)
 
   verbose = true;
 
+  if (my_mhc_type == 6) // antibody
+    {
+      my_tcra_chain = "L";
+      my_tcrb_chain = "H";
+    }
+  
   LoadTCR(my_tcr_file);
-  LoadPepMHC(my_pepmhc_file);
+  if (my_mhc_type != 6) LoadPepMHC(my_pepmhc_file);
 }
 
 TCRComplex::~TCRComplex()
 {
   delete[] my_tcra.Atoms;
   delete[] my_tcrb.Atoms;
-  delete[] my_mhc.Atoms;
-  delete[] my_pep.Atoms;
-  if (IsClassII) delete[] my_mhcb.Atoms;
+  if (my_mhc_type < 6)
+    {
+      delete[] my_mhc.Atoms;
+      delete[] my_pep.Atoms;
+      if (IsClassII) delete[] my_mhcb.Atoms;
+    }
 }
 
 void TCRComplex::LoadPepMHC(string filename)
@@ -204,8 +212,18 @@ bool TCRComplex::GetCoordsRes(ProteinChain *prot, int res_num, string ins_code, 
 {
   for (int i = 0; i < prot->num_atoms; i++)
     {
-      if ((prot->Atoms[i].res == res_num) && (prot->Atoms[i].ins_code == ins_code) && (prot->Atoms[i].atom == atom) && (prot->Atoms[i].res_name == res_name))
-      {
+      if (res_name == "AAA") // BP 9/21/20 wild-card residue: use with caution and a reliable numbering scheme
+	{
+	  if ((prot->Atoms[i].res == res_num) && (prot->Atoms[i].ins_code == ins_code) && (prot->Atoms[i].atom == atom))
+	    {
+	      x = prot->Atoms[i].x;
+	      y = prot->Atoms[i].y;
+	      z = prot->Atoms[i].z;
+	      return true;
+	    }
+	}
+      else if ((prot->Atoms[i].res == res_num) && (prot->Atoms[i].ins_code == ins_code) && (prot->Atoms[i].atom == atom) && (prot->Atoms[i].res_name == res_name)) // original check
+	{
 	  x = prot->Atoms[i].x;
 	  y = prot->Atoms[i].y;
 	  z = prot->Atoms[i].z;
@@ -263,7 +281,7 @@ double TCRComplex::CalcDockingAngle()
   outfile3 = fopen("axis.pdb", "w");
   //OutputAxis(outfile3, mhccentx, mhccenty, mhccentz, mhcx, mhcy, mhcz);
   //OutputAxis(outfile3, mhccentx, mhccenty, mhccentz, mhcnormx, mhcnormy, mhcnormz);
-  OutputAxis(outfile3, tcrcentx, tcrcenty, tcrcentz, tcrx, tcry, tcrz);
+  //OutputAxis(outfile3, tcrcentx, tcrcenty, tcrcentz, tcrx, tcry, tcrz);
   OutputAxis(outfile3, tcrcentx, tcrcenty, tcrcentz, tcrrotx, tcrroty, tcrrotz, "H");
   fclose(outfile3);
  
@@ -310,84 +328,62 @@ double TCRComplex::CalcDockingAngle()
   return angle;
 }
 
+void TCRComplex::AlignAntibody()
+{
+  double tcrx = 0.0, tcry = 0.0, tcrz = 0.0, tcrcentx = 0.0, tcrcenty = 0.0, tcrcentz = 0.0, tcrrotx = 0.0, tcrroty = 0.0, tcrrotz = 0.0;
+  FILE *outfile;
+
+  CalcTCRSGVector(tcrx, tcry, tcrz, tcrcentx, tcrcenty, tcrcentz);
+  CalcTCRRotVector(tcrrotx, tcrroty, tcrrotz);
+  AlignTCRRotVector(tcrrotx, tcrroty, tcrrotz, tcrcentx, tcrcenty, tcrcentz); // negate the vector if necessary so that it's a normal vector
+
+  // align TCR to the x and z axes 
+  outfile = fopen("antibody.aligned.pdb", "w");
+  
+  AlignAntibodyToAxis(outfile, tcrrotx, tcrroty, tcrrotz, tcrx, tcry, tcrz, tcrcentx, tcrcenty, tcrcentz);  
+
+  fclose(outfile);
+
+  return;
+}
+
 void TCRComplex::CalcTCRSGVector(double & tcrx, double & tcry, double & tcrz, double & tcrcentx, double & tcrcenty, double & tcrcentz)
 {
+  FILE *outfile;
   // calculate the vector between the TCR disulfides, the CM of that vector, and the angle of rotation between the Vb domains
   double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0, z1 = 0.0, z2 = 0.0;
   double tmp_x, tmp_y, tmp_z;
-  if (! GetCoords(&my_tcra, 22, " ", " SG ", tmp_x, tmp_y, tmp_z))
+  if (! GetCoords(&my_tcra, TCR_CYS1alpha, " ", " SG ", tmp_x, tmp_y, tmp_z))
     {
-      if (verbose) cout << "error getting coordinate for SG of TCRa residue 22!" << endl;
-      bool atom_found = false;
-      for (int i = -4; i <= 4; i++)
-	{
-	  if (GetCoords(&my_tcra, 22 + i, " ", " SG ", tmp_x, tmp_y, tmp_z))
-	    {
-	      if (verbose) cout << "using residue " << 22 + i << " instead" << endl;
-	      atom_found = true;
-	      break;
-	    }
-	}
-      if (! atom_found) exit(0);
+      cerr << "error getting coordinate for SG of TCRa residue " << TCR_CYS1alpha << endl;
+      exit(0);
     }
   x1 += tmp_x;
   y1 += tmp_y;
   z1 += tmp_z;
   
-  if (! GetCoords(&my_tcra, 90, " ", " SG ", tmp_x, tmp_y, tmp_z))
+  if (! GetCoords(&my_tcra, TCR_CYS2alpha, " ", " SG ", tmp_x, tmp_y, tmp_z))
     {
-      if (verbose) cout << "error getting coordinate for SG of TCRa residue 90!" << endl;
-      bool atom_found = false;
-      for (int i = -6; i <= 15; i++) // going up to residue 104 for 3DXA
-	{
-	  if (GetCoords(&my_tcra, 90 + i, " ", " SG ", tmp_x, tmp_y, tmp_z))
-	    {
-	      if (verbose) cout << "using residue " << 90 + i << " instead" << endl;
-	      atom_found = true;
-	      tcra_cys_shift = i;
-	      break;
-	    }
-	}
-      if (! atom_found) exit(0);
+      cerr << "error getting coordinate for SG of TCRa residue " << TCR_CYS2alpha << endl;
+      exit(0);
     }
   x1 += tmp_x;
   y1 += tmp_y;
   z1 += tmp_z;
 
-  if (! GetCoords(&my_tcrb, 23, " ", " SG ", tmp_x, tmp_y, tmp_z))
+  if (! GetCoords(&my_tcrb, TCR_CYS1beta, " ", " SG ", tmp_x, tmp_y, tmp_z))
     {
-      if (verbose) cout << "error getting coordinate for SG of TCRb residue 23!" << endl;
-      bool atom_found = false;
-      for (int i = -4; i <= 4; i++)
-	{
-	  if (GetCoords(&my_tcrb, 23 + i, " ", " SG ", tmp_x, tmp_y, tmp_z))
-	    {
-	      if (verbose) cout << "using residue " << 23 + i << " instead" << endl;
-	      atom_found = true;
-	      break;
-	    }
-	}
-      if (! atom_found) exit(0);
+      cerr << "error getting coordinate for SG of TCRb residue " << TCR_CYS1beta << endl;
+      exit(0);
     }
   x2 += tmp_x;
   y2 += tmp_y;
   z2 += tmp_z;
   
-  if (! GetCoords(&my_tcrb, 92, " ", " SG ", tmp_x, tmp_y, tmp_z))
+  if (! GetCoords(&my_tcrb, TCR_CYS2beta, " ", " SG ", tmp_x, tmp_y, tmp_z))
     {
-      if (verbose) cout << "error getting coordinate for SG of TCRb residue 92!" << endl;
-      bool atom_found = false;
-      for (int i = -6; i <= 15; i++)  // going up to residue 104 for 3DXA
-	{
-	  if (GetCoords(&my_tcrb, 92 + i, " ", " SG ", tmp_x, tmp_y, tmp_z))
-	    {
-	      if (verbose) cout << "using residue " << 92 + i << " instead" << endl;
-	      atom_found = true;
-	      tcrb_cys_shift = i;
-	      break;
-	    }
-	}
-      if (! atom_found) exit(0);
+      cerr << "error getting coordinate for SG of TCRb residue " << TCR_CYS2beta << endl;
+      exit(0);
     }
   x2 += tmp_x;
   y2 += tmp_y;
@@ -401,6 +397,14 @@ void TCRComplex::CalcTCRSGVector(double & tcrx, double & tcry, double & tcrz, do
   y2 /= 2.0;
   z2 /= 2.0;
 
+   // output the new tcr center as a HETATM in a PDB file
+  outfile = fopen("tcrcents.pdb", "w");
+  string tmpbuf = "HETATM    1  CA  CEN D   1       9.419  10.702  55.946  1.00 48.05           C  ";
+  fprintf(outfile, "%s%8.3f%8.3f%8.3f%s%s", tmpbuf.substr(0, 30).c_str(), x1, y1, z1, tmpbuf.substr(54).c_str(), "\n");
+  tmpbuf = "HETATM    1  CA  CEN E   1       9.419  10.702  55.946  1.00 48.05           C  ";
+  fprintf(outfile, "%s%8.3f%8.3f%8.3f%s%s", tmpbuf.substr(0, 30).c_str(), x2, y2, z2, tmpbuf.substr(54).c_str(), "\n");
+  fclose(outfile);
+  
   // calculate the vector from tcra to tcrb disulfides
   tcrx = x2 - x1;
   tcry = y2 - y1;
@@ -438,8 +442,15 @@ void TCRComplex::CalcTCRRotVector(double & tcrrotx, double & tcrroty, double & t
   jz_protein_null(&protein2);
 
   // will just use the entire input chains, truncate externally
-  bp_protein_load(&protein1,my_tcr_file.c_str(),255,'D',-1,200);
-  bp_protein_load(&protein2,my_tcr_file.c_str(),255,'E',-1,200);
+  char alpha_chn = 'D';
+  char beta_chn = 'E';
+  if (my_mhc_type == 6)
+    {
+      alpha_chn = 'L';
+      beta_chn = 'H';
+    }
+  bp_protein_load(&protein1,my_tcr_file.c_str(),255,alpha_chn,-1,200);
+  bp_protein_load(&protein2,my_tcr_file.c_str(),255,beta_chn,-1,200);
   p1 = &protein1;
   p2 = &protein2;
 
@@ -486,16 +497,14 @@ void TCRComplex::AlignTCRRotVector(double & tcrrotx, double & tcrroty, double & 
   double gln_cent_y = 0.0;
   double gln_cent_z = 0.0;
 
-  int cterm_posa = 88;
-  int cterm_posb = 90;
-  int gln_pos = 37; // this is 44 in 4G8E, 4G8F
+  int tyr_pos = TCR_TYR;
+  int gln_pos = TCR_GLN;
 
   // try GLN 37 first
   bool gln_found = true;
-  if (! GetCoordsRes(&my_tcra, gln_pos, " ", " CA ", "GLN", tmp_x, tmp_y, tmp_z))
+  if (! GetCoordsRes(&my_tcra, gln_pos, " ", " CA ", "AAA", tmp_x, tmp_y, tmp_z)) // BP 9/21/20 using wild-card residue name here, ASSUMPTION: standard (Aho) numbering scheme reflective of this residue in tcr_complex.h
     {
-      gln_found = false;
-      if (verbose) cout << "Unable to find residue " << gln_pos << " on TCRa chain" << endl;
+      cout << "Unable to find residue " << gln_pos << " on TCRa chain" << endl;
     }
   else
     {
@@ -504,10 +513,10 @@ void TCRComplex::AlignTCRRotVector(double & tcrrotx, double & tcrroty, double & 
       gln_cent_z += tmp_z;
     }
 
-  if (gln_found && (! GetCoordsRes(&my_tcrb, gln_pos, " ", " CA ", "GLN", tmp_x, tmp_y, tmp_z)))
+  if (gln_found && (! GetCoordsRes(&my_tcrb, gln_pos, " ", " CA ", "AAA", tmp_x, tmp_y, tmp_z))) // BP 9/21/20 using wild-card residue name here, ASSUMPTION: standard (Aho) numbering scheme reflective of this residue in tcr_complex.h
     {
       gln_found = false;
-      if (verbose) cout << "Unable to find residue " << gln_pos << " on TCRb chain" << endl;
+      cout << "Unable to find residue " << gln_pos << " on TCRb chain" << endl;
     }
   else if (gln_found)
     {
@@ -517,41 +526,28 @@ void TCRComplex::AlignTCRRotVector(double & tcrrotx, double & tcrroty, double & 
     }
   
   // find the first c_term direction CA coord
-  bool pos_found = true;
+  bool pos_found = false;
   if (! gln_found)
     {
-      if (! GetCoordsRes(&my_tcra, cterm_posa, " ", " CA ", "TYR", tmp_x, tmp_y, tmp_z))
+      if (! GetCoordsRes(&my_tcra, tyr_pos, " ", " CA ", "TYR", tmp_x, tmp_y, tmp_z))
 	{
-	  if (GetCoordsRes(&my_tcra, cterm_posa + tcra_cys_shift, " ", " CA ", "TYR", tmp_x, tmp_y, tmp_z))
-	    {
-	      if (verbose) cout << "Using residue " << cterm_posa + tcra_cys_shift << " instead of " << cterm_posa << " for TCRa" << endl;
-	    }
-	  else
-	    {
-	      cerr << "Unable to find residue " << cterm_posa << " on TCRa" << endl;
-	      pos_found = false;
-	    }
+	  cerr << "Unable to find residue " << tyr_pos << " on TCRa" << endl;
+	  exit(1);
 	}
       cterm_cent_x += tmp_x;
       cterm_cent_y += tmp_y;
       cterm_cent_z += tmp_z;
       
       // find the c term direction CA coord
-      if (! GetCoordsRes(&my_tcrb, cterm_posb, " ", " CA ", "TYR", tmp_x, tmp_y, tmp_z))
+      if (! GetCoordsRes(&my_tcrb, tyr_pos, " ", " CA ", "TYR", tmp_x, tmp_y, tmp_z))
 	{
-	  if (GetCoordsRes(&my_tcrb, cterm_posb + tcrb_cys_shift, " ", " CA ", "TYR", tmp_x, tmp_y, tmp_z))
-	    {
-	      if (verbose) cout << "Using residue " << cterm_posb + tcrb_cys_shift << " instead of " << cterm_posb << " for TCRb" << endl;
-	    }
-	  else
-	    {
-	      cerr << "Unable to find residue " << cterm_posb << " on TCRb" << endl;
-	      pos_found = false;
-	    }
+	  cerr << "Unable to find residue " << tyr_pos << " on TCRb" << endl;
+	  exit(1);
 	}
       cterm_cent_x += tmp_x;
       cterm_cent_y += tmp_y;
       cterm_cent_z += tmp_z;
+      pos_found = true;
     }
   
   double pos_cent_x, pos_cent_y, pos_cent_z;
@@ -569,7 +565,7 @@ void TCRComplex::AlignTCRRotVector(double & tcrrotx, double & tcrroty, double & 
     }
   else
     {
-      cout << "Error: unable to find GLN or TYR positions for TCR vector orientation!" << endl;
+      cerr << "Error: unable to find GLN or TYR positions for TCR vector orientation!" << endl;
       exit(1);
     }
   double tmp_vect_x = pos_cent_x - tcrcentx;
@@ -581,13 +577,15 @@ void TCRComplex::AlignTCRRotVector(double & tcrrotx, double & tcrroty, double & 
   double axis_angle = acos((tmp_vect_x*tcrrotx + tmp_vect_y*tcrroty + tmp_vect_z*tcrrotz)/tmp_mag)*180.0/PI;
 
   double angle_cutoff = 25.0;
+  /*
   if ((axis_angle > angle_cutoff) && (axis_angle < 180.0 - angle_cutoff))
     {
       cerr << "Error: tcr axis angle check too large: " << axis_angle << endl;
       exit(1);
     }
+  */
   if (verbose) cout << "Axis angle: " << axis_angle << endl;
-  if (axis_angle < 90.0) 
+  if (axis_angle < 120.0) 
     {
       tcrrotx = -tcrrotx;
       tcrroty = -tcrroty;
@@ -693,6 +691,13 @@ void TCRComplex::CalcMHCVectors(double & mhcx, double & mhcy, double & mhcz, dou
 	  helix1_end = 89;
 	  helix2_start = 141;
 	  helix2_end = 179;
+	}
+      else if (my_mhc_type == 6) // T22
+	{
+	  helix1_start = 61;
+	  helix1_end = 86;
+	  helix2_start = 159;
+	  helix2_end = 173;
 	}
       for (int i = helix1_start; i <= helix1_end; i++)
 	{
@@ -876,8 +881,8 @@ void TCRComplex::OutputAxis(FILE* outfile, double x, double y, double z, double 
       newx += vectx*step_length*0.3;
       newy += vecty*step_length*0.3;
       newz += vectz*step_length*0.3;
-      fprintf(outfile, "%s%4d%s%8.3f%8.3f%8.3f%s%s", tmpbuf2.substr(0, 22).c_str(), dummy_res_num, tmpbuf2.substr(26, 4).c_str(), newx, newy, newz,
-	      tmpbuf2.substr(54).c_str(), "\n");
+      /* fprintf(outfile, "%s%4d%s%8.3f%8.3f%8.3f%s%s", tmpbuf2.substr(0, 22).c_str(), dummy_res_num, tmpbuf2.substr(26, 4).c_str(), newx, newy, newz,
+	 tmpbuf2.substr(54).c_str(), "\n"); */
       
       dummy_res_num++;
     }
@@ -1159,6 +1164,101 @@ void TCRComplex::AlignTCRToAxis(FILE* outfile1, FILE* outfile2, double tcrrotx, 
    newcentx = x_coords[ind];
    newcenty = y_coords[ind];
    newcentz = z_coords[ind];
+   
+   delete[] x_coords;
+   delete[] y_coords;
+   delete[] z_coords;
+}
+
+// align the antibody rotation axis and disulf axes to the input axes and center
+void TCRComplex::AlignAntibodyToAxis(FILE* outfile1, double tcrrotx, double tcrroty, double tcrrotz, double tcrx, double tcry, double tcrz, double tcrcentx, double tcrcenty, double tcrcentz)
+{
+  // first, translate the TCR to the center
+  int tot_atoms = my_tcra.num_atoms + my_tcrb.num_atoms;
+  
+  //  tot_atoms++; // extra position to store centroid
+
+  double* x_coords = new double[tot_atoms];
+  double* y_coords = new double[tot_atoms];
+  double* z_coords = new double[tot_atoms];
+
+  int ind = 0;
+  
+  for (int i = 0; i < my_tcra.num_atoms; i++) 
+    {
+      x_coords[ind] = my_tcra.Atoms[i].x;
+      y_coords[ind] = my_tcra.Atoms[i].y;
+      z_coords[ind] = my_tcra.Atoms[i].z;
+      ind++;
+    }
+  for (int i = 0; i < my_tcrb.num_atoms; i++) 
+    {
+      x_coords[ind] = my_tcrb.Atoms[i].x;
+      y_coords[ind] = my_tcrb.Atoms[i].y;
+      z_coords[ind] = my_tcrb.Atoms[i].z;
+      ind++;
+    }
+
+  // translate to the center
+  for (int i = 0; i < tot_atoms; i++)
+    {
+      x_coords[i] -= tcrcentx;
+      y_coords[i] -= tcrcenty;
+      z_coords[i] -= tcrcentz;
+    }
+
+  
+  // rotate to align with the z axis
+  AlignMolToVector(x_coords, y_coords, z_coords, tcrrotx, tcrroty, tcrrotz, tcrx, tcry, tcrz, 0, 0, 1, tot_atoms);
+
+  
+  // get the angle between the x of interchain vector and x-axis in the x-y plane
+  double mag = sqrt(tcrx*tcrx + tcry*tcry);
+  
+  double rot_angle = -acos(tcrx/mag);
+  if (tcry < 0.0) rot_angle = -rot_angle; // negate angle if vector is below the x-axis
+  //rot_angle -= PI/4.0; // rotate to average docking angle 45 degrees
+
+  // new rotation matrix around z_axis
+  double a11 = cos(rot_angle);
+  double a12 = -sin(rot_angle);
+  double a13 = 0;
+  double a21 = sin(rot_angle);
+  double a22 = cos(rot_angle);
+  double a23 = 0;
+  double a31 = 0;
+  double a32 = 0;
+  double a33 = 1;
+
+   // rotate around the axis
+   for (int i = 0; i < tot_atoms; i++)
+    {
+      double newx = a11*x_coords[i] + a12*y_coords[i] + a13*z_coords[i];
+      double newy = a21*x_coords[i] + a22*y_coords[i] + a23*z_coords[i];
+      double newz = a31*x_coords[i] + a32*y_coords[i] + a33*z_coords[i];
+      x_coords[i] = newx;
+      y_coords[i] = newy;
+      z_coords[i] = newz;
+    }
+
+
+   // output the heavy chain first
+   ind = my_tcra.num_atoms; // start at the first coord for the heavy chain
+
+   for (int i = 0; i < my_tcrb.num_atoms; i++) 
+    {
+         fprintf(outfile1, "%s%8.3f%8.3f%8.3f%s%s", my_tcrb.Atoms[i].line.substr(0, 30).c_str(),
+	      x_coords[ind], y_coords[ind], z_coords[ind], my_tcrb.Atoms[i].line.substr(54).c_str(), "\n");
+      ind++;
+    }
+
+    ind = 0;
+   for (int i = 0; i < my_tcra.num_atoms; i++) 
+    {
+      fprintf(outfile1, "%s%8.3f%8.3f%8.3f%s%s", my_tcra.Atoms[i].line.substr(0, 30).c_str(),
+	      x_coords[ind], y_coords[ind], z_coords[ind], my_tcra.Atoms[i].line.substr(54).c_str(), "\n");
+      ind++;
+    }
    
    delete[] x_coords;
    delete[] y_coords;
