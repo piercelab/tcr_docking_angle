@@ -1,13 +1,17 @@
 # tcr_docking_angle
 # Brian Pierce 10/18/17
+# updated in 2020
 
 Be sure to install the GNU Scientific Library (GSL) prior to compilation.
 
-To compile, type "make".
+To compile, type "make". You may need to first recompile the required FAST library in the 
+"fast" subdirectory.
 
 This program takes in the structure of a TCR-peptide-MHC complex, containing only
-TCR variable domain and MHC alpha1-alpha2 domains. Also, it assumes the naming 
-convention for the chains:
+TCR variable domain and MHC alpha1-alpha2 domains. It requires the TCR domains to be
+numbered with the AHo numbering (Honegger and Plückthun JMB 2001), which can be performed
+using the ANARCI tool (https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/sabpred/anarci/).
+Also, this program assumes this chain naming convention for input PDBs:
 A: MHC
 B: MHC second chain (if Class II)
 C: peptide
