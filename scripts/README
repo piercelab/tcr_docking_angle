@@ -1,0 +1,58 @@
+# Renumber TCR Chains in a PDB File Using ANARCI
+
+## Overview
+This script renumbers T-cell receptor (TCR) chains in a TCR or TCR-peptide-MHC complex PDB file using the AHo numbering scheme via ANARCI. It ensures that the TCR chains are properly renumbered while maintaining standard chain IDs for the MHC and peptide chains.
+
+## Requirements
+- **Python** (Biopython version 1.85)
+- **ANARCI** (Installed and accessible via command line)
+
+### Installation
+Ensure you have Biopython and ANARCI installed:
+```sh
+pip install biopython==1.85
+```
+Follow the ANARCI installation guide:
+[ANARCI Documentation](https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/sabpred/anarci/)
+
+## Standard Chain IDs in Output PDB
+After renumbering, the output PDB file will have the following standardized chain IDs:
+- **MHC-A**   → `A`
+- **MHC-B**   → `B`
+- **Peptide** → `C`
+- **TCR-A**   → `D`
+- **TCR-B**   → `E`
+
+## Usage
+```sh
+usage: renumber_tcr.py [-h] -i INPUT [-o OUTPUT] [--tcr_a TCR_A] [--tcr_b TCR_B] [--peptide PEPTIDE] [--mhc_a MHC_A] [--mhc_b MHC_B]
+```
+
+### Arguments
+- `-h, --help`             → Show this help message and exit
+- `-i INPUT, --input INPUT` → Input PDB file containing the TCR-peptide-MHC complex
+- `-o OUTPUT, --output OUTPUT` → Output PDB file with renumbered TCR chains (default: `renumbered_tcr.pdb`)
+- `--tcr_a TCR_A`          → Chain ID for TCR-alpha (default: `D`)
+- `--tcr_b TCR_B`          → Chain ID for TCR-beta (default: `E`)
+- `--peptide PEPTIDE`      → Chain ID for Peptide (default: `C`)
+- `--mhc_a MHC_A`          → Chain ID for MHC-A (default: `A`)
+- `--mhc_b MHC_B`          → Chain ID for MHC-B (default: `B`, used only for Class II MHC)
+
+## Example Usage
+```sh
+./renumber_tcr.py -i 3e2h.pdb --tcr_a B --tcr_b C --peptide Q --mhc_a A
+```
+
+This example renumbers:
+- **TCR-A** (`B` → `D`)
+- **TCR-B** (`C` → `E`)
+- **Peptide** (`Q` → `C`)
+- **MHC-A** remains `A`
+
+## Notes
+- If no chain options are provided, the script will use the standard chain IDs: MHC-A (A), MHC-B (B), Peptide (C), TCR-A (D), and TCR-B (E).
+- Any **HETATM** residues are removed before processing.
+
+## License
+This script is open-source and free to use under the MIT License.
+
