@@ -1,3 +1,7 @@
+import sys
+if sys.version_info[0] < 3:
+    sys.exit("Error: This script requires Python 3. Please run it with python3.")
+    
 import argparse
 import subprocess
 import os
@@ -61,7 +65,7 @@ def three_to_one(res_name):
     return three_to_one_dict.get(res_name, "X")  # Use 'X' for unknown residues
 
 def parse_anarci_output(output_file):
-    """Parse ANARCI output and return AHo numbering."""
+    """Parse ANARCI output and return AHo numbering, handling insertion codes."""
     aho_mapping = []
     with open(output_file, 'r') as f:
         for line in f:
@@ -70,19 +74,50 @@ def parse_anarci_output(output_file):
             parts = line.split()
             if len(parts) < 3:
                 continue  # Skip invalid lines
-            chain_id, aho_number, amino_acid = parts[0], int(parts[1]), parts[2]
+            
+            chain_id = parts[0]
+            aho_number = int(parts[1])  # Base residue number (integer)
+            
+            # Handle both cases (with/without insertion code)
+            insertion_code = ""
+            amino_acid = parts[3] if len(parts) >= 4 else parts[2]
+            insertion_code = parts[2] if len(parts) >= 4 else " "
+            
             if amino_acid == "-":
                 continue  # Ignore gaps
-            aho_mapping.append((aho_number, amino_acid))  # Store valid AHo numbering
+
+            # Validate insertion_code (only A-Z allowed, otherwise use space)
+            if insertion_code and insertion_code not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                insertion_code = " "  # Reset invalid insertion codes to space
+                
+            # Store tuple with number, insertion code, and amino acid
+            aho_mapping.append((aho_number, insertion_code, amino_acid))
+    
     return aho_mapping
 
-def renumber_tcr_chain(structure, chain_id, aho_mapping):
+def renumber_tcr_chain(structure, chain_id, aho_mappings, pdb_sequence):
     """Renumber a single TCR chain using AHo numbering from ANARCI."""
-    if chain_id not in aho_mapping or not aho_mapping[chain_id]:
+    """Renumber PDB residues and keep only those matching the ANARCI sequence using AHo numbering."""
+    if chain_id not in aho_mappings or not aho_mappings[chain_id]:
         print(f"No AHo numbering found for chain {chain_id}. Skipping renumbering.")
         return
-    # Extract valid AHo numbers
-    valid_aho_numbers = [num for num, _ in aho_mapping[chain_id]]
+
+    # Extract ANARCI sequence and numbering
+    aho_mapping = aho_mappings[chain_id]  # Get the list for this chain
+    valid_aho_numbers = [(num, icode) for num, icode, _ in aho_mapping]  # Extract (number, insertion_code)
+    anarci_sequence = "".join([aa for _, _, aa in aho_mapping])
+
+    # Find the starting position of the ANARCI sequence within the PDB sequence
+    pdb_start_idx = pdb_sequence.find(anarci_sequence)
+    if pdb_start_idx == -1:
+        print(f"Error: ANARCI sequence not found in PDB sequence for chain {chain_id}!")
+        print(f"PDB sequence:   {pdb_sequence}")
+        print(f"ANARCI sequence: {anarci_sequence}")
+        print(f"Skipping renumbering for chain {chain_id}.")
+        return
+
+    pdb_end_idx = pdb_start_idx + len(anarci_sequence)
+    print(f"ANARCI sequence found in PDB sequence at positions {pdb_start_idx + 1} to {pdb_end_idx} (1-based indexing).")
     # Iterate over structure to find the target chain
     for model in structure:
         for chain in model:
@@ -90,21 +125,36 @@ def renumber_tcr_chain(structure, chain_id, aho_mapping):
                 # Get all residues in the chain
                 pdb_residues = list(chain.get_residues())
 
-                if len(pdb_residues) != len(valid_aho_numbers):
-                    print(f"Warning: PDB chain {chain_id} residues ({len(pdb_residues)}) do not match non-gap AHo residues ({len(valid_aho_numbers)}). Removing extra residues.")
+                if len(pdb_residues) < pdb_end_idx:
+                    print(f"Error: PDB chain {chain_id} has fewer residues ({len(pdb_residues)}) than required ({pdb_end_idx}). Skipping.")
+                    return
 
-                # Remove extra residues that don't have an AHo mapping
-                for res in pdb_residues[len(valid_aho_numbers):]:  # Extra residues
-                    chain.detach_child(res.id)  # Correctly remove each extra residue
+                # Remove residues before the matching start
+                for res in pdb_residues[:pdb_start_idx]:
+                    #print(f"Removing N-terminal residue {res.id[1]} from chain {chain_id}")
+                    chain.detach_child(res.id)
 
-                # Renumber the remaining residues
-                for residue, new_id in zip(pdb_residues[:len(valid_aho_numbers)], valid_aho_numbers):
-                    residue.id = (residue.id[0], new_id, residue.id[2])  # Update residue number
+                # Remove residues after the matching end
+                for res in pdb_residues[pdb_end_idx:]:
+                    #print(f"Removing C-terminal residue {res.id[1]} from chain {chain_id}")
+                    chain.detach_child(res.id)
+
+                # Refresh the residue list after removals
+                pdb_residues = list(chain.get_residues())
+
+                # Renumber the remaining residues with AHo numbers and insertion codes
+                for residue, (new_num, new_icode) in zip(pdb_residues, valid_aho_numbers):
+                    old_id = f"{residue.id[1]}{residue.id[2]}"
+                    residue.id = (residue.id[0], new_num, new_icode)  # Update with number and insertion code
+                    #print(f"Renumbered residue {old_id} to AHo {new_num}{new_icode} in chain {chain_id}")
+
+                print(f"Chain {chain_id} renumbered with AHo numbering, extra residues removed.")
 
 def renumber_tcr_chains(structure, in_chains, output_pdb):
     """Renumber TCR chains using AHo numbering"""
     # Run ANARCI for TCR chains
     aho_mappings = {}
+    pdb_sequences = {}
     for tcr_chain in ["tcr_a", "tcr_b"]:
         chain_id = in_chains.get(tcr_chain)
         if chain_id:
@@ -114,6 +164,7 @@ def renumber_tcr_chains(structure, in_chains, output_pdb):
                 print(f"Warning: No TCR sequence found for {tcr_chain} ({chain_id}). Skipping.")
                 continue
 
+            pdb_sequences[chain_id] = seq
             # Save sequence to a FASTA file
             fasta_file = f"{tcr_chain}.fasta"
             output_file = f"anarci_output_{tcr_chain}.txt"
@@ -126,7 +177,7 @@ def renumber_tcr_chains(structure, in_chains, output_pdb):
             # Parse ANARCI output
             aho_mappings[chain_id] = parse_anarci_output(output_file)
 
-    #renumber tcr chains
+    # Renumber TCR chains with sequence validation
     for model in structure:
         for chain in model:
             curr_chain_id = chain.id
@@ -134,7 +185,7 @@ def renumber_tcr_chains(structure, in_chains, output_pdb):
                 logical_name = next((key for key, value in in_chains.items() if value == curr_chain_id), None)
                 if curr_chain_id in [in_chains.get('tcr_a'), in_chains.get('tcr_b')]:
                     print(f"Renumbering {logical_name} chain {curr_chain_id}")
-                    renumber_tcr_chain(structure, curr_chain_id, aho_mappings)
+                    renumber_tcr_chain(structure, curr_chain_id, aho_mappings, pdb_sequences.get(curr_chain_id, ""))
 
     #rename chain id's
     for model in structure:
